@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>범용 CRI 계산기</title>
+  <meta name="description" content="사용자 정의 약물의 원액 농도, 앰플 용량, 용량 단위 등을 설정해 CRI 조제 레시피를 산출하는 범용 계산기" />
+  <style>
+    :root{ --blue:#1d4ed8; --lightblue:#dbeafe; --border:#e5e7eb; --bg:#f8fafc; --card:#fff; }
+    body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;background:var(--bg);color:#0f172a;padding:12px}
+    h2{margin:0 0 12px;font-size:1.35rem;color:var(--blue);text-align:center}
+    h3{margin:0 0 8px;font-size:1.05rem;color:#111}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:12px;box-shadow:0 2px 6px rgba(0,0,0,.04)}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:stretch}
+    .ibox{border:2px solid var(--blue);border-radius:10px;padding:10px;background:#f9fafb;flex:1;display:flex;flex-direction:column;position:relative;min-width:140px;max-width:280px}
+    label{display:block;font-size:.85rem;color:var(--blue);margin-bottom:4px}
+    input[type=number], select{padding:8px;border:1px solid var(--border);border-radius:8px;font-size:0.95rem;background:#fff}
+    .dose-display{margin-top:6px;font-weight:700;color:#1e40af;font-size:1rem;text-align:center}
+    table{width:100%;border-collapse:collapse;font-size:.9rem}
+    th,td{padding:6px;border-bottom:1px solid var(--border);text-align:left}
+    td.bold{font-weight:700}
+    .right{text-align:right}
+    .total{background:#eff6ff;font-weight:700}
+    .seg{display:flex;gap:12px;flex-wrap:wrap}
+    .seg .chip{display:inline-flex;align-items:center;gap:6px;border:2px solid var(--border);padding:8px 12px;border-radius:999px;background:#fff;cursor:pointer;font-size:0.9rem}
+    .seg input{display:none}
+    .seg input:checked + span{background:#dbeafe;border-color:var(--blue);font-weight:700}
+    .bignum{font-size:1.2rem;padding:10px 30px;text-align:center}
+    .unit-label{position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:0.9rem;color:#374151}
+    .flex-input{display:flex; gap:6px; align-items:center;}
+    .flex-input input{flex:2; min-width:80px;}
+    .flex-input select{flex:2; min-width:110px;}
+    .hidden{display:none}
+    @media (max-width: 600px){.row{flex-direction:column}.ibox{max-width:100%}}
+  </style>
+</head>
+<body>
+  <h2>범용 CRI 계산기</h2>
+
+  <div class="card">
+    <h3>⚙️ 원액 설정</h3>
+    <div class="row">
+      <div class="ibox">
+        <label>농도</label>
+        <div class="flex-input">
+          <input id="stockConc" type="number" step="0.01" value="1">
+          <select id="stockUnit">
+            <option value="mg">mg/mL</option>
+            <option value="ug">µg/mL</option>
+            <option value="g">g/mL</option>
+          </select>
+        </div>
+      </div>
+      <div class="ibox"><label>앰플 용량 (mL)</label><input id="ampMl" type="number" step="0.1" value="10"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>⚙️ 기본 입력</h3>
+    <div class="row">
+      <div class="ibox"><label for="bw">체중 (kg)</label><input id="bw" type="number" step="0.1"></div>
+      <div class="ibox"><label for="flow">수액속도 (mL/hr)</label><input id="flow" type="number" step="0.1"></div>
+      <div class="ibox">
+        <label>용량</label>
+        <div class="flex-input">
+          <input id="dose" type="number" step="0.01" value="1.0">
+          <select id="doseUnit">
+            <option value="mgkgHr">mg/kg/hr</option>
+            <option value="ugkgMin">µg/kg/min</option>
+          </select>
+        </div>
+        <div id="doseVal" class="dose-display">1.0 mg/kg/hr</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>🧪 조제 기준</h3>
+    <div class="seg" id="modeSeg">
+      <label class="chip"><input type="radio" name="mode" value="time"><span>총시간</span></label>
+      <label class="chip"><input type="radio" name="mode" value="volume"><span>총량</span></label>
+      <label class="chip"><input type="radio" name="mode" value="default" checked><span>100mL 수액+add</span></label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div class="ibox mode-input mode-time hidden" style="max-width:200px">
+        <input id="hours" class="bignum" type="number" step="1" min="1" placeholder="12"><span class="unit-label">hr</span>
+      </div>
+      <div class="ibox mode-input mode-volume hidden" style="max-width:200px">
+        <input id="volume" class="bignum" type="number" step="1" min="1" placeholder="60"><span class="unit-label">mL</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>📊 조제 레시피</h3>
+    <table>
+      <tbody>
+        <tr><td>시간당 약물량</td><td class="right" id="needPerHr">-</td></tr>
+        <tr><td>총 조제량</td><td class="right" id="totalV">-</td></tr>
+        <tr><td class="bold">약물량 / 수액량</td><td class="right bold" id="mixPair">-</td></tr>
+      </tbody>
+      <tfoot>
+        <tr class="total"><td>앰플</td><td class="right" id="ampCount">-</td></tr>
+      </tfoot>
+    </table>
+  </div>
+
+<script>
+const $ = (q)=>document.querySelector(q);
+const stockConc=$('#stockConc'), stockUnit=$('#stockUnit'), ampMl=$('#ampMl');
+const bw=$('#bw'), flow=$('#flow');
+const dose=$('#dose'), doseUnit=$('#doseUnit'), doseVal=$('#doseVal');
+const hours=$('#hours'), volume=$('#volume');
+const needPerHr=$('#needPerHr'), totalV=$('#totalV'), mixPair=$('#mixPair'), ampCount=$('#ampCount');
+let mode='default';
+
+['input','change','keyup'].forEach(ev=>[bw,flow,hours,volume,dose,stockConc,stockUnit,doseUnit].forEach(el=>el.addEventListener(ev,recalc)));
+
+document.querySelectorAll('input[name="mode"]').forEach(r=>r.addEventListener('change',()=>{mode=r.value;updateModeUI();recalc();}));
+
+function getConcInMgPerMl(){
+  const val=parseFloat(stockConc.value)||0;
+  const unit=stockUnit.value;
+  if(unit==='mg') return val;
+  if(unit==='ug') return val/1000;  // µg → mg
+  if(unit==='g') return val*1000;   // g → mg
+  return val;
+}
+
+function getDoseText(){
+  return doseUnit.value==='mgkgHr' ? `${dose.value} mg/kg/hr` : `${dose.value} µg/kg/min`;
+}
+
+function calcMgPerHr(){
+  const W=parseFloat(bw.value)||0;
+  const D=parseFloat(dose.value)||0;
+  if(doseUnit.value==='mgkgHr'){
+    return D * W; // mg/hr
+  } else { // µg/kg/min → mg/hr
+    return (D * W * 60) / 1000; // (µg→mg, /min→/hr)
+  }
+}
+
+function recalc(){
+  const C=getConcInMgPerMl(); // mg/mL
+  const A=parseFloat(ampMl.value)||10;
+  const W=parseFloat(bw.value);
+  const F=parseFloat(flow.value);
+  const mg_hr=calcMgPerHr();
+
+  doseVal.textContent = getDoseText();
+
+  if(!(C>0&&A>0&&W>0&&F>0&&mg_hr>0)) return reset();
+
+  needPerHr.textContent=`${mg_hr.toFixed(2)} mg/hr`;
+
+  let V, stock_mL, total_mg;
+  if(mode==='time'){
+    const H=parseFloat(hours.value)||12;
+    V=F*H; total_mg=mg_hr*H; stock_mL=total_mg/C;
+    totalV.textContent=`${total_mg.toFixed(2)} mg`;
+  } else if(mode==='volume'){
+    const Vin=parseFloat(volume.value)||60;
+    V=Vin; total_mg=(mg_hr/F)*V; stock_mL=total_mg/C;
+    totalV.textContent=`${total_mg.toFixed(2)} mg`;
+  } else {
+    const diluent_mL=100;
+    const C_mg_mL=mg_hr/F; stock_mL=(C_mg_mL*diluent_mL)/C; V=stock_mL+diluent_mL;
+    totalV.textContent=`${V.toFixed(1)} mL (100 mL 수액 기준)`;
+  }
+  const dil_mL=V-stock_mL;
+  mixPair.textContent=`약물 ${stock_mL.toFixed(1)} mL + 수액 ${dil_mL.toFixed(1)} mL`;
+  const ampExact=stock_mL/A;
+  ampCount.textContent=`${ampExact.toFixed(2)} 개 (=${stock_mL.toFixed(1)} mL)`;
+}
+
+function reset(){needPerHr.textContent=totalV.textContent=mixPair.textContent=ampCount.textContent='-';}
+
+function updateModeUI(){
+  const timeBox=document.querySelector('.mode-time');
+  const volBox=document.querySelector('.mode-volume');
+  const timeInput=document.getElementById('hours');
+  const volInput=document.getElementById('volume');
+
+  timeBox.classList.add('hidden');
+  volBox.classList.add('hidden');
+  timeInput.disabled=true; volInput.disabled=true;
+
+  if(mode==='time'){
+    timeBox.classList.remove('hidden');
+    timeInput.disabled=false;
+    volInput.value='';
+  } else if(mode==='volume'){
+    volBox.classList.remove('hidden');
+    volInput.disabled=false;
+    timeInput.value='';
+  } else {
+    timeInput.value='';
+    volInput.value='';
+  }
+}
+
+updateModeUI();
+recalc();
+</script>
+</body>
+</html>
